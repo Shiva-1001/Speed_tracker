@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spend Tracker</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 16px; }
+    form { display: grid; gap: 10px; max-width: 500px; }
+    input, button { padding: 9px; font-size: 1rem; }
+    button { cursor: pointer; }
+    .cards { display: flex; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
+    .card { border: 1px solid #ddd; padding: 14px; border-radius: 8px; min-width: 180px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border-bottom: 1px solid #ddd; padding: 8px; text-align: left; }
+    #error { color: #b00020; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <h1>Spend Tracker</h1>
+
+  <label>
+    API key:
+    <input id="apiKey" type="password" value="dev-secret-key">
+  </label>
+
+  <h2>Add expense</h2>
+  <form id="expenseForm">
+    <input id="amount" type="number" min="0.01" step="0.01" placeholder="Amount" required>
+    <input id="category" type="text" maxlength="50" placeholder="Category" required>
+    <input id="note" type="text" maxlength="500" placeholder="Note">
+    <input id="date" type="date" required>
+    <button type="submit">Add expense</button>
+  </form>
+
+  <p id="error"></p>
+
+  <h2>Summary</h2>
+  <div class="cards">
+    <div class="card"><strong>Total spend</strong><div id="total">-</div></div>
+    <div class="card"><strong>Previous month</strong><div id="previous">-</div></div>
+    <div class="card"><strong>MoM change</strong><div id="change">-</div></div>
+  </div>
+
+  <h3>Spend by category</h3>
+  <table>
+    <thead><tr><th>Category</th><th>Total</th></tr></thead>
+    <tbody id="categories"></tbody>
+  </table>
+
+  <script>
+    const apiKey = () => document.getElementById("apiKey").value;
+    const headers = () => ({ "X-API-Key": apiKey(), "Content-Type": "application/json" });
+
+    document.getElementById("date").value = new Date().toISOString().slice(0, 10);
+
+    async function loadSummary() {
+      const response = await fetch("/summary", { headers: headers() });
+      if (!response.ok) throw new Error((await response.json()).detail || "Could not load summary");
+      const data = await response.json();
+
+      document.getElementById("total").textContent = data.total_spend.toFixed(2);
+      document.getElementById("previous").textContent = data.previous_month_total.toFixed(2);
+      document.getElementById("change").textContent =
+        data.month_over_month_change_percent === null
+          ? "N/A"
+          : `${data.month_over_month_change_percent.toFixed(2)}%`;
+
+      document.getElementById("categories").innerHTML = data.spend_by_category
+        .map(item => `<tr><td>${escapeHtml(item.category)}</td><td>${item.total.toFixed(2)}</td></tr>`)
+        .join("");
+    }
+
+    document.getElementById("expenseForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      document.getElementById("error").textContent = "";
+
+      const payload = {
+        amount: Number(document.getElementById("amount").value),
+        category: document.getElementById("category").value,
+        note: document.getElementById("note").value || null,
+        date: document.getElementById("date").value
+      };
+
+      try {
+        const response = await fetch("/expenses", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const body = await response.json();
+          throw new Error(body.detail || "Could not create expense");
+        }
+
+        event.target.reset();
+        document.getElementById("date").value = new Date().toISOString().slice(0, 10);
+        await loadSummary();
+      } catch (error) {
+        document.getElementById("error").textContent = error.message;
+      }
+    });
+
+    function escapeHtml(value) {
+      return value.replace(/[&<>"']/g, char => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
+      }[char]));
+    }
+
+    loadSummary().catch(error => {
+      document.getElementById("error").textContent = error.message;
+    });
+  </script>
+</body>
+</html>
